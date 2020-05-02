@@ -7,17 +7,19 @@ This is a baseclass for celery tasks that ensures only one instance of the task 
 **Table of Contents**
 
 - [Celery-Singleton](#celery-singleton)
-    - [Prerequisites](#prerequisites)
-    - [Quick start](#quick-start)
-    - [How does it work?](#how-does-it-work)
-    - [Handling deadlocks](#handling-deadlocks)
-    - [Backends](#backends)
-    - [Task configuration](#task-configuration)
-        - [unique\_on](#uniqueon)
-        - [raise\_on\_duplicate](#raiseonduplicate)
-    - [App Configuration](#app-configuration)
-    - [Testing](#testing)
-    - [Contribute](#contribute)
+  - [Prerequisites](#prerequisites)
+  - [Quick start](#quick-start)
+  - [How does it work?](#how-does-it-work)
+  - [Handling deadlocks](#handling-deadlocks)
+  - [Backends](#backends)
+  - [Task configuration](#task-configuration)
+    - [unique\_on](#uniqueon)
+    - [raise\_on\_duplicate](#raiseonduplicate)
+    - [lock\_expiry](#lockexpiry)
+    - [callenge_lock_on_startup](#callengelockonstartup)
+  - [App Configuration](#app-configuration)
+  - [Testing](#testing)
+  - [Contribute](#contribute)
 
 <!-- markdown-toc end -->
 
@@ -182,6 +184,32 @@ assert task1 != task2  # These are two separate task instances
 
 This option can be applied globally in the [app config](#app-configuration) with `singleton_lock_expiry`. Task option supersedes the app config.
 
+### callenge_lock_on_startup 
+
+Some tasks may be stucked after unexpected shuttdown of a worker.
+If this situation should be avoided, the lock can be challenged on task startup.
+
+> **Use with caution** : this configuration may lead to unexpected behaviour. Try using classic [deadlocks handling](#markdown-header-handling-deadlocks) if possible.
+> this may lead to unexpected behaviour if celery is in a transition state at task startup
+> ex: Tasks beeing scheduled while no worker online will all start on worker startup
+
+```python
+from celery_singleton import Singleton
+from .local_path import app
+
+
+@app.task(
+    base=Singleton,
+    challenge_lock_on_startup=True,
+    celery_app=app,
+)
+def do_something(username):
+    time.sleep(5)
+
+task1 = do_something.delay('bob')
+# Worker cold shuttdown causes lock to remain
+task2 = do_something.delay('bob') # lock should be removed
+```
 
 ## App Configuration
 
