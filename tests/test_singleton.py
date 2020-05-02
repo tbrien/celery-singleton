@@ -10,6 +10,7 @@ from celery_singleton import util, DuplicateTaskError
 from celery_singleton.backends.redis import RedisBackend
 from celery_singleton.backends import get_backend
 from celery_singleton.config import Config
+from celery_singleton import inspect_celery
 
 
 @pytest.fixture(scope="session")
@@ -313,3 +314,25 @@ class TestLockExpiry:
             mock_lock.assert_called_once_with(
                 simple_task.singleton_backend, lock, result.task_id, expiry=60
             )
+
+class TestChallengeLockOnStartup:
+    @mock.patch.object(RedisBackend, "lock", return_value=True, autospec=True)
+    @mock.patch.object(inspect_celery, "list_celery_tasks_with_name")
+    def test__lock_invalidation__remove_lock_if_no_task_running(self, mock_lock, mock_celery_inspect, scoped_app):
+        with scoped_app as app:
+            # Given : lock is present and task is running
+            task_name = "simple_task"
+            task_args=[1, 2, 3]
+            mock_celery_inspect.return_value = [inspect_celery.CeleryTask(task_name, task_args, None)] # mock existance of running task in celery
+            @app.task(base=Singleton, challenge_lock_on_startup=True, celery_app=None)
+            def simple_task(*args):
+                return args
+            lock = simple_task.generate_lock(simple_task.name, task_args=task_args) # generate lock
+            simple_task.singleton_backend.lock(lock, "any_task_id", expiry=None)
+            simple_task.unlock = mock.MagicMock(name='unlock')
+
+            # When : trying to run the signleton task
+            simple_task.delay(1, 2, 3)
+
+            # Then : lock should remain and no new task should be started
+            simple_task.unlock.assert_not_called()
